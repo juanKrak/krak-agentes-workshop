@@ -67,9 +67,27 @@
     comentarioWords = countWords(comentario);
   }
 
+  // ==========================
+  // Anillo de seguridad (Form)
+  // ==========================
+  let isSubmitting = false;
+  let submitError = '';
+  let submitSuccess = false;
+
+  const WEBHOOK_URL = 'https://n8n-krak.com/webhook/workshop-newsletter';
+  const FETCH_TIMEOUT_MS = 15000;
+
   // Manejo del formulario
   async function handleForm(e) {
     e.preventDefault();
+
+    // Anti doble-submit (usuarios ansiosos / doble click / lag)
+    if (isSubmitting) return;
+    isSubmitting = true;
+
+    // Reset mensajes UI
+    submitError = '';
+    submitSuccess = false;
 
     const formEl = e.currentTarget;
     const form = new FormData(formEl);
@@ -82,32 +100,66 @@
     // garantizamos que salga el comentario ya limitado
     form.set('comentario', comentario);
 
+    // Timeout para evitar requests colgados (reduce reintentos y duplicados)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
-      const res = await fetch('https://n8n-krak.com/webhook/workshop-newsletter', {
+      const res = await fetch(WEBHOOK_URL, {
         method: 'POST',
         body: form, // <- FormData, SIN headers
+        signal: controller.signal,
       });
+
+      clearTimeout(timeout);
 
       if (!res.ok) {
         const msg = await res.text().catch(() => '');
         console.error('Webhook error:', res.status, msg);
-        alert('Hubo un error. Por favor, intentá nuevamente.');
+
+        submitError = 'Hubo un error. Por favor, intentá nuevamente.';
+        alert(submitError);
+        return;
+      }
+
+      // Forward-compatible: si n8n en el futuro devuelve JSON { ok: true }
+      // (si no hay JSON, no pasa nada)
+      const data = await res.clone().json().catch(() => null);
+      if (data && data.ok === false) {
+        console.error('Webhook response not ok:', data);
+
+        submitError = 'Hubo un error. Por favor, intentá nuevamente.';
+        alert(submitError);
         return;
       }
 
       // ✅ Meta: conversión real (Lead) SOLO cuando el webhook respondió OK.
       // Nota team: el Pixel base se carga globalmente en src/app.html.
+      // Importante: NO medir conversiones por clicks en CTAs (hero/beneficios).
       if (typeof window !== 'undefined' && window.fbq) {
         window.fbq('track', 'Lead');
+        // Alternativa semántica si MKT la prefiere:
+        // window.fbq('track', 'CompleteRegistration');
       }
+
+      submitSuccess = true;
 
       alert('Gracias por inscribirte!');
       formEl.reset();
       comentario = '';
       comentarioWords = 0;
     } catch (error) {
+      clearTimeout(timeout);
       console.error(error);
-      alert('Hubo un error. Por favor, intentá nuevamente.');
+
+      submitError =
+        error?.name === 'AbortError'
+          ? 'La respuesta tardó demasiado. Probá nuevamente en unos segundos.'
+          : 'Hubo un error. Por favor, intentá nuevamente.';
+
+      alert(submitError);
+    } finally {
+      isSubmitting = false;
     }
   }
 </script>
@@ -331,6 +383,18 @@
     </h2>
 
     <form on:submit={handleForm} class="space-y-8 bg-white p-6 sm:p-8 rounded-xl shadow-md">
+      {#if submitError}
+        <div class="rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm">
+          {submitError}
+        </div>
+      {/if}
+
+      {#if submitSuccess}
+        <div class="rounded-lg border border-green-200 bg-green-50 text-green-800 px-4 py-3 text-sm">
+          ¡Listo! Te registramos correctamente.
+        </div>
+      {/if}
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label for="nombre" class="block text-lg font-medium text-gray-700">Nombre</label>
@@ -399,12 +463,12 @@
       <div>
         <button
           type="submit"
-          class="w-full bg-white hover:bg-gray-100 text-[#08407C] font-bold text-xl py-4 px-6 rounded-lg shadow-lg transition duration-300 transform hover:scale-[1.02] border-2 border-[#08407C]"
+          disabled={isSubmitting}
+          class="w-full bg-white hover:bg-gray-100 text-[#08407C] font-bold text-xl py-4 px-6 rounded-lg shadow-lg transition duration-300 transform hover:scale-[1.02] border-2 border-[#08407C] disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          Inscribite gratis y empezá a jugar en serio
+          {isSubmitting ? 'Enviando...' : 'Inscribite gratis y empezá a jugar en serio'}
         </button>
       </div>
     </form>
   </div>
 </section>
-
