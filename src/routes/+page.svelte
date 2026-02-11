@@ -1,28 +1,21 @@
 <script>
   import { onMount } from 'svelte';
-
-<<<<<<< HEAD
   // =========================
   // CONFIG
   // =========================
   const WEBHOOK_URL = 'https://n8n-krak.com/webhook/newsletter'; // webhook n8n prod
   const YOUTUBE_ID = 'GD6frexLvxs';
   const VIDEO_TITLE = 'Masterclass de Krak Real Estate con Marcelo Napolitano';
-
   // =========================
   // VIDEO GATE
   // =========================
   const LS_KEY = 'krak_masterclass_video_access_v1';
-=======
   // Countdown hacia el 12 de febrero de 2026
   let days = '00';
   let hours = '00';
   let minutes = '00';
   let seconds = '00';
-
   const countDownDate = new Date('Feb 12, 2026 00:00:00').getTime();
->>>>>>> ca18b1741788f7639de1411bdb5dcd9492f45339
-
   let showGate = false;
   let gateEmail = '';
   let gateError = '';
@@ -81,12 +74,9 @@
       gateError = 'No pudimos registrar tu email. Probá de nuevo.';
     }
   }
-
-<<<<<<< HEAD
   // =========================
   // FORM ORIGINAL (lo dejamos como backup)
   // =========================
-=======
   // ==========================
   // Limite de palabras (Comentario)
   // ==========================
@@ -130,7 +120,6 @@
   const FETCH_TIMEOUT_MS = 15000;
 
   // Manejo del formulario
->>>>>>> ca18b1741788f7639de1411bdb5dcd9492f45339
   async function handleForm(e) {
     e.preventDefault();
 
@@ -636,7 +625,6 @@
       </div>
     </form>
   </div>
-<<<<<<< HEAD
 </section>
 
 <style>
@@ -660,7 +648,4 @@
     color: white;
   }
 </style>
-
-=======
 </section>
->>>>>>> ca18b1741788f7639de1411bdb5dcd9492f45339
