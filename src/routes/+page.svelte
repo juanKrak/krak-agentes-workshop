@@ -1,21 +1,27 @@
 <script>
   import { onMount } from 'svelte';
+
   // =========================
   // CONFIG
   // =========================
-  const WEBHOOK_URL = 'https://n8n-krak.com/webhook/newsletter'; // webhook n8n prod
   const YOUTUBE_ID = 'GD6frexLvxs';
   const VIDEO_TITLE = 'Masterclass de Krak Real Estate con Marcelo Napolitano';
+
+  // Webhooks (separados para evitar duplicados)
+  // Gate (email) → idealmente apunta a tu n8n real (fly). Si todavía no lo activaste, igual hay fallback.
+  const WEBHOOK_GATE_URL = 'https://krak-n8n.fly.dev/webhook/video-gate';
+
+  // Form original (backup) — si lo seguís usando
+  const WEBHOOK_NEWSLETTER_URL = 'https://n8n-krak.com/webhook/workshop-newsletter';
+
+  // Form chico (postulación + CV) — cuando lo tengas listo en n8n
+  const WEBHOOK_AGENT_URL = 'https://krak-n8n.fly.dev/webhook/postulacion-agente';
+
   // =========================
   // VIDEO GATE
   // =========================
   const LS_KEY = 'krak_masterclass_video_access_v1';
-  // Countdown hacia el 12 de febrero de 2026
-  let days = '00';
-  let hours = '00';
-  let minutes = '00';
-  let seconds = '00';
-  const countDownDate = new Date('Feb 12, 2026 00:00:00').getTime();
+
   let showGate = false;
   let gateEmail = '';
   let gateError = '';
@@ -42,8 +48,8 @@
     gateError = '';
   }
 
-  async function sendJson(payload) {
-    const res = await fetch(WEBHOOK_URL, {
+  async function sendJson(url, payload) {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -59,27 +65,31 @@
     }
 
     try {
-      await sendJson({
+      await sendJson(WEBHOOK_GATE_URL, {
         source: 'agentes.krak.com.ar',
         funnel: 'video_gate',
         email: gateEmail.trim(),
         createdAt: new Date().toISOString(),
       });
 
+      // OK
       localStorage.setItem(LS_KEY, gateEmail.trim());
       videoUnlocked = true;
       showGate = false;
       videoLoaded = true;
     } catch (e) {
-      gateError = 'No pudimos registrar tu email. Probá de nuevo.';
+      // 🔥 Modo "video always works" para hoy:
+      // si el webhook falla, igual no bloqueamos el contenido.
+      localStorage.setItem(LS_KEY, gateEmail.trim());
+      videoUnlocked = true;
+      showGate = false;
+      videoLoaded = true;
     }
   }
+
   // =========================
-  // FORM ORIGINAL (lo dejamos como backup)
+  // FORM ORIGINAL (backup)
   // =========================
-  // ==========================
-  // Limite de palabras (Comentario)
-  // ==========================
   const MAX_WORDS = 80;
   const MAX_CHARS = 600; // backup por seguridad
 
@@ -109,47 +119,34 @@
     comentarioWords = countWords(comentario);
   }
 
-  // ==========================
-  // Anillo de seguridad (Form)
-  // ==========================
   let isSubmitting = false;
   let submitError = '';
   let submitSuccess = false;
 
-  const WEBHOOK_URL = 'https://n8n-krak.com/webhook/workshop-newsletter';
   const FETCH_TIMEOUT_MS = 15000;
 
-  // Manejo del formulario
   async function handleForm(e) {
     e.preventDefault();
-
-    // Anti doble-submit (usuarios ansiosos / doble click / lag)
     if (isSubmitting) return;
-    isSubmitting = true;
 
-    // Reset mensajes UI
+    isSubmitting = true;
     submitError = '';
     submitSuccess = false;
 
     const formEl = e.currentTarget;
     const form = new FormData(formEl);
 
-    // opcional: agregamos metadata útil
     form.append('source', 'agentes.krak.com.ar');
     form.append('ts', new Date().toISOString());
-
-    // (extra safety) por si el browser mandara otro valor
-    // garantizamos que salga el comentario ya limitado
     form.set('comentario', comentario);
 
-    // Timeout para evitar requests colgados (reduce reintentos y duplicados)
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
-      const res = await fetch(WEBHOOK_URL, {
+      const res = await fetch(WEBHOOK_NEWSLETTER_URL, {
         method: 'POST',
-        body: form, // <- FormData, SIN headers
+        body: form,
         signal: controller.signal,
       });
 
@@ -158,34 +155,24 @@
       if (!res.ok) {
         const msg = await res.text().catch(() => '');
         console.error('Webhook error:', res.status, msg);
-
         submitError = 'Hubo un error. Por favor, intentá nuevamente.';
         alert(submitError);
         return;
       }
 
-      // Forward-compatible: si n8n en el futuro devuelve JSON { ok: true }
-      // (si no hay JSON, no pasa nada)
       const data = await res.clone().json().catch(() => null);
       if (data && data.ok === false) {
         console.error('Webhook response not ok:', data);
-
         submitError = 'Hubo un error. Por favor, intentá nuevamente.';
         alert(submitError);
         return;
       }
 
-      // ✅ Meta: conversión real (Lead) SOLO cuando el webhook respondió OK.
-      // Nota team: el Pixel base se carga globalmente en src/app.html.
-      // Importante: NO medir conversiones por clicks en CTAs (hero/beneficios).
       if (typeof window !== 'undefined' && window.fbq) {
         window.fbq('track', 'Lead');
-        // Alternativa semántica si MKT la prefiere:
-        // window.fbq('track', 'CompleteRegistration');
       }
 
       submitSuccess = true;
-
       alert('Gracias por inscribirte!');
       formEl.reset();
       comentario = '';
@@ -233,10 +220,13 @@
     fd.append('cv', a_cv);
 
     try {
-      const res = await fetch(WEBHOOK_URL, { method: 'POST', body: fd });
+      const res = await fetch(WEBHOOK_AGENT_URL, { method: 'POST', body: fd });
       if (res.ok) {
         alert('¡Gracias! Recibimos tu info 🙌');
-        a_nombre = a_apellido = a_celular = a_email = '';
+        a_nombre = '';
+        a_apellido = '';
+        a_celular = '';
+        a_email = '';
         a_cv = null;
       } else {
         alert('Hubo un error. Por favor, intentá nuevamente.');
@@ -267,9 +257,7 @@
   ></div>
 
   <div class="relative mx-auto max-w-5xl text-center">
-    <p
-      class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80"
-    >
+    <p class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80">
       Masterclass para agentes inmobiliarios
       <span class="h-1 w-1 rounded-full bg-white/40"></span>
       Mentor: Marcelo Napolitano
@@ -301,9 +289,7 @@
       </a>
     </div>
 
-    <p class="mt-6 text-sm text-white/50">
-      Mirá la masterclass y dejá tus datos para sumarte al equipo.
-    </p>
+    <p class="mt-6 text-sm text-white/50">Mirá la masterclass y dejá tus datos para sumarte al equipo.</p>
   </div>
 </section>
 
@@ -323,8 +309,7 @@
       <div class="mt-7 rounded-2xl border border-white/10 bg-white/5 p-6">
         <p class="text-sm uppercase tracking-wider text-white/60 font-semibold">Mentor</p>
         <p class="mt-2 text-lg text-white/85 font-inter">
-          Marcelo Napolitano te va a mostrar cómo pensar, cómo hablar y cómo actuar como un profesional
-          que domina su mercado.
+          Marcelo Napolitano te va a mostrar cómo pensar, cómo hablar y cómo actuar como un profesional que domina su mercado.
         </p>
       </div>
     </div>
@@ -347,7 +332,7 @@
   </div>
 </section>
 
-<!-- VIDEO (gateado por email, rápido) -->
+<!-- VIDEO (gateado por email) -->
 <section id="video" class="py-14 sm:py-16 px-4 sm:px-6 lg:px-8 bg-[#070F1F]">
   <div class="max-w-4xl mx-auto">
     <div class="relative rounded-2xl overflow-hidden border border-white/10 bg-black">
@@ -428,9 +413,7 @@
   <div class="max-w-4xl mx-auto">
     <div class="rounded-2xl border border-white/10 bg-white/5 p-6 sm:p-8 text-white">
       <h3 class="text-2xl sm:text-3xl font-bold font-inter">Postulate para ser agente</h3>
-      <p class="mt-2 text-white/70">
-        Dejanos tus datos y adjuntá tu CV. Te contactamos para el próximo paso.
-      </p>
+      <p class="mt-2 text-white/70">Dejanos tus datos y adjuntá tu CV. Te contactamos para el próximo paso.</p>
 
       <form on:submit={handleAgentForm} class="mt-6 space-y-5">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -473,9 +456,7 @@
           Enviar postulación
         </button>
 
-        <p class="text-xs text-white/50">
-          Al enviar, aceptás ser contactado por el equipo de Krak Real Estate.
-        </p>
+        <p class="text-xs text-white/50">Al enviar, aceptás ser contactado por el equipo de Krak Real Estate.</p>
       </form>
     </div>
   </div>
@@ -484,37 +465,27 @@
 <!-- BENEFICIOS -->
 <section class="py-14 sm:py-16 px-4 sm:px-6 lg:px-8 bg-[#050A14]">
   <div class="max-w-5xl mx-auto">
-    <h2 class="text-3xl md:text-4xl font-bold text-white text-center font-inter">
-      Lo que cambia después de esta masterclass
-    </h2>
+    <h2 class="text-3xl md:text-4xl font-bold text-white text-center font-inter">Lo que cambia después de esta masterclass</h2>
 
     <div class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
       <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
         <p class="text-white font-semibold text-lg">Generar confianza desde el primer contacto</p>
-        <p class="mt-2 text-white/70">
-          Entrar a cada charla con una forma clara de presentarte, encuadrar la conversación y marcar el ritmo.
-        </p>
+        <p class="mt-2 text-white/70">Entrar a cada charla con una forma clara de presentarte, encuadrar la conversación y marcar el ritmo.</p>
       </div>
 
       <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
         <p class="text-white font-semibold text-lg">Manejar objeciones sin improvisar</p>
-        <p class="mt-2 text-white/70">
-          Responder con argumentos sólidos, sin ponerte a la defensiva ni regalar autoridad.
-        </p>
+        <p class="mt-2 text-white/70">Responder con argumentos sólidos, sin ponerte a la defensiva ni regalar autoridad.</p>
       </div>
 
       <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
         <p class="text-white font-semibold text-lg">Cerrar propiedades más rápido y con menos fricción</p>
-        <p class="mt-2 text-white/70">
-          Reducir vueltas, evitar desgaste y avanzar hacia el cierre con decisiones más claras.
-        </p>
+        <p class="mt-2 text-white/70">Reducir vueltas, evitar desgaste y avanzar hacia el cierre con decisiones más claras.</p>
       </div>
 
       <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
         <p class="text-white font-semibold text-lg">Posicionarte como referente, no como “uno más”</p>
-        <p class="mt-2 text-white/70">
-          Elevar tu estándar: cómo hablás, cómo proponés y cómo te plantás en el mercado.
-        </p>
+        <p class="mt-2 text-white/70">Elevar tu estándar: cómo hablás, cómo proponés y cómo te plantás en el mercado.</p>
       </div>
     </div>
 
@@ -532,15 +503,11 @@
 <!-- FORMULARIO ORIGINAL (backup) -->
 <section id="formulario" class="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 bg-[#f0f4f8]">
   <div class="max-w-3xl mx-auto">
-    <h2 class="text-3xl sm:text-4xl font-bold mb-10 text-center font-inter text-gray-900">
-      Completá el formulario para reservar tu lugar
-    </h2>
+    <h2 class="text-3xl sm:text-4xl font-bold mb-10 text-center font-inter text-gray-900">Completá el formulario para reservar tu lugar</h2>
 
     <form on:submit={handleForm} class="space-y-8 bg-white p-6 sm:p-8 rounded-xl shadow-md">
       {#if submitError}
-        <div class="rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm">
-          {submitError}
-        </div>
+        <div class="rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm">{submitError}</div>
       {/if}
 
       {#if submitSuccess}
@@ -609,9 +576,7 @@
           class="mt-2 block w-full border-2 border-gray-300 rounded-lg shadow-sm py-3 px-4 focus:outline-none focus:ring-2 focus:ring-[#08407C] focus:border-[#08407C] text-lg"
         ></textarea>
 
-        <p class="mt-2 text-sm text-gray-500">
-          {comentarioWords}/{MAX_WORDS} palabras
-        </p>
+        <p class="mt-2 text-sm text-gray-500">{comentarioWords}/{MAX_WORDS} palabras</p>
       </div>
 
       <div>
@@ -648,4 +613,3 @@
     color: white;
   }
 </style>
-</section>
