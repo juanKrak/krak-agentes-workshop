@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
 
+<<<<<<< HEAD
   // =========================
   // CONFIG
   // =========================
@@ -12,6 +13,15 @@
   // VIDEO GATE
   // =========================
   const LS_KEY = 'krak_masterclass_video_access_v1';
+=======
+  // Countdown hacia el 12 de febrero de 2026
+  let days = '00';
+  let hours = '00';
+  let minutes = '00';
+  let seconds = '00';
+
+  const countDownDate = new Date('Feb 12, 2026 00:00:00').getTime();
+>>>>>>> ca18b1741788f7639de1411bdb5dcd9492f45339
 
   let showGate = false;
   let gateEmail = '';
@@ -72,29 +82,137 @@
     }
   }
 
+<<<<<<< HEAD
   // =========================
   // FORM ORIGINAL (lo dejamos como backup)
   // =========================
+=======
+  // ==========================
+  // Limite de palabras (Comentario)
+  // ==========================
+  const MAX_WORDS = 80;
+  const MAX_CHARS = 600; // backup por seguridad
+
+  let comentario = '';
+  let comentarioWords = 0;
+
+  function countWords(text) {
+    return text.trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  function clampWords(text, maxWords) {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    if (words.length <= maxWords) return text;
+    return words.slice(0, maxWords).join(' ');
+  }
+
+  function handleComentarioInput(e) {
+    let value = e.currentTarget.value;
+
+    // backup por caracteres
+    if (value.length > MAX_CHARS) value = value.slice(0, MAX_CHARS);
+
+    // límite real por palabras
+    value = clampWords(value, MAX_WORDS);
+
+    comentario = value;
+    comentarioWords = countWords(comentario);
+  }
+
+  // ==========================
+  // Anillo de seguridad (Form)
+  // ==========================
+  let isSubmitting = false;
+  let submitError = '';
+  let submitSuccess = false;
+
+  const WEBHOOK_URL = 'https://n8n-krak.com/webhook/workshop-newsletter';
+  const FETCH_TIMEOUT_MS = 15000;
+
+  // Manejo del formulario
+>>>>>>> ca18b1741788f7639de1411bdb5dcd9492f45339
   async function handleForm(e) {
     e.preventDefault();
-    const form = new FormData(e.target);
-    const body = JSON.stringify(Object.fromEntries(form));
+
+    // Anti doble-submit (usuarios ansiosos / doble click / lag)
+    if (isSubmitting) return;
+    isSubmitting = true;
+
+    // Reset mensajes UI
+    submitError = '';
+    submitSuccess = false;
+
+    const formEl = e.currentTarget;
+    const form = new FormData(formEl);
+
+    // opcional: agregamos metadata útil
+    form.append('source', 'agentes.krak.com.ar');
+    form.append('ts', new Date().toISOString());
+
+    // (extra safety) por si el browser mandara otro valor
+    // garantizamos que salga el comentario ya limitado
+    form.set('comentario', comentario);
+
+    // Timeout para evitar requests colgados (reduce reintentos y duplicados)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
       const res = await fetch(WEBHOOK_URL, {
         method: 'POST',
-        body,
+        body: form, // <- FormData, SIN headers
+        signal: controller.signal,
       });
 
-      if (res.ok) {
-        alert('Gracias por inscribirte!');
-        e.target.reset();
-      } else {
-        alert('Hubo un error. Por favor, intentá nuevamente.');
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        const msg = await res.text().catch(() => '');
+        console.error('Webhook error:', res.status, msg);
+
+        submitError = 'Hubo un error. Por favor, intentá nuevamente.';
+        alert(submitError);
+        return;
       }
+
+      // Forward-compatible: si n8n en el futuro devuelve JSON { ok: true }
+      // (si no hay JSON, no pasa nada)
+      const data = await res.clone().json().catch(() => null);
+      if (data && data.ok === false) {
+        console.error('Webhook response not ok:', data);
+
+        submitError = 'Hubo un error. Por favor, intentá nuevamente.';
+        alert(submitError);
+        return;
+      }
+
+      // ✅ Meta: conversión real (Lead) SOLO cuando el webhook respondió OK.
+      // Nota team: el Pixel base se carga globalmente en src/app.html.
+      // Importante: NO medir conversiones por clicks en CTAs (hero/beneficios).
+      if (typeof window !== 'undefined' && window.fbq) {
+        window.fbq('track', 'Lead');
+        // Alternativa semántica si MKT la prefiere:
+        // window.fbq('track', 'CompleteRegistration');
+      }
+
+      submitSuccess = true;
+
+      alert('Gracias por inscribirte!');
+      formEl.reset();
+      comentario = '';
+      comentarioWords = 0;
     } catch (error) {
+      clearTimeout(timeout);
       console.error(error);
-      alert('Hubo un error. Por favor, intentá nuevamente.');
+
+      submitError =
+        error?.name === 'AbortError'
+          ? 'La respuesta tardó demasiado. Probá nuevamente en unos segundos.'
+          : 'Hubo un error. Por favor, intentá nuevamente.';
+
+      alert(submitError);
+    } finally {
+      isSubmitting = false;
     }
   }
 
@@ -430,6 +548,18 @@
     </h2>
 
     <form on:submit={handleForm} class="space-y-8 bg-white p-6 sm:p-8 rounded-xl shadow-md">
+      {#if submitError}
+        <div class="rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm">
+          {submitError}
+        </div>
+      {/if}
+
+      {#if submitSuccess}
+        <div class="rounded-lg border border-green-200 bg-green-50 text-green-800 px-4 py-3 text-sm">
+          ¡Listo! Te registramos correctamente.
+        </div>
+      {/if}
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label for="nombre" class="block text-lg font-medium text-gray-700">Nombre</label>
@@ -484,20 +614,29 @@
           id="comentario"
           name="comentario"
           rows="4"
+          bind:value={comentario}
+          on:input={handleComentarioInput}
+          maxlength={MAX_CHARS}
           class="mt-2 block w-full border-2 border-gray-300 rounded-lg shadow-sm py-3 px-4 focus:outline-none focus:ring-2 focus:ring-[#08407C] focus:border-[#08407C] text-lg"
         ></textarea>
+
+        <p class="mt-2 text-sm text-gray-500">
+          {comentarioWords}/{MAX_WORDS} palabras
+        </p>
       </div>
 
       <div>
         <button
           type="submit"
-          class="w-full bg-white hover:bg-gray-100 text-[#08407C] font-bold text-xl py-4 px-6 rounded-lg shadow-lg transition duration-300 transform hover:scale-[1.02] border-2 border-[#08407C]"
+          disabled={isSubmitting}
+          class="w-full bg-white hover:bg-gray-100 text-[#08407C] font-bold text-xl py-4 px-6 rounded-lg shadow-lg transition duration-300 transform hover:scale-[1.02] border-2 border-[#08407C] disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          Inscribite gratis y empezá a jugar en serio
+          {isSubmitting ? 'Enviando...' : 'Inscribite gratis y empezá a jugar en serio'}
         </button>
       </div>
     </form>
   </div>
+<<<<<<< HEAD
 </section>
 
 <style>
@@ -522,3 +661,6 @@
   }
 </style>
 
+=======
+</section>
+>>>>>>> ca18b1741788f7639de1411bdb5dcd9492f45339
