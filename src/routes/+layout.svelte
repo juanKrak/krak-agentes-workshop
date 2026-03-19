@@ -1,5 +1,8 @@
 <script lang="ts">
     import "../app.css"
+    import { page } from '$app/stores';
+
+    $: isAdminRoute = $page.url.pathname.startsWith('/admin');
 
     async function handleNewsLetter(e: SubmitEvent & {
         currentTarget: EventTarget & HTMLFormElement;
@@ -53,6 +56,7 @@
     <link rel="preload" href="/fonts/Inter-Regular.woff2" as="font" type="font/woff2" crossorigin>
 </svelte:head>
 
+{#if !isAdminRoute}
 <header class="max-w-6xl mx-auto w-full px-4 h-24 sm:h-36 flex items-center justify-between *:z-10 -mb-24 sm:-mb-36">
     <img src="/svg/iso-white.svg" class="h-16 object-contain" alt="Krak Real Estate" />
     <div class="flex items-center text-2xl gap-3 text-white">
@@ -62,11 +66,13 @@
         <a href="https://www.youtube.com/channel/UCx5MEQ0uTFHNaaoGOVGFFSw" aria-label="YouTube de Krak Real Estate" class="hover:text-red-300 icon-[mdi--youtube]" target="_blank" rel="noopener noreferrer"> </a>
     </div>
 </header>
+{/if}
 
 <main class="min-h-[calc(100svh-5rem)] flex flex-col font-inter overflow-x-hidden">
     <slot />
 </main>
 
+{#if !isAdminRoute}
 <footer class="bg-gray-500 text-white py-16">
     <div class="max-w-6xl mx-auto w-full px-4 grid sm:grid-cols-2 md:grid-cols-3 gap-16 sm:gap-8 md:gap-4">
         <div class="flex flex-col">
@@ -94,11 +100,11 @@
                 <a href="https://www.youtube.com/channel/UCx5MEQ0uTFHNaaoGOVGFFSw" aria-label="YouTube de Krak Real Estate" class="hover:text-red-300 icon-[mdi--youtube]" target="_blank"> </a>
             </div>
         </div>
-        <form class="group flex flex-col sm:col-start-2 md:col-start-auto sm:mt-8 md:mt-0" on:submit|preventDefault={handleNewsLetter}> 
+        <form class="group flex flex-col sm:col-start-2 md:col-start-auto sm:mt-8 md:mt-0" on:submit|preventDefault={handleNewsLetter}>
             <h2 class="uppercase text-sm mb-8">Suscribite al newsletter</h2>
             <div class="block group-then:hidden">
                 <label class="text-gray-500 mb-2 relative flex group-await:opacity-50">
-                    <input class="rounded-lg peer pt-5 pb-1 px-4 w-full font-semibold" type="email" placeholder=" " maxlength="255" name="email" required> 
+                    <input class="rounded-lg peer pt-5 pb-1 px-4 w-full font-semibold" type="email" placeholder=" " maxlength="255" name="email" required>
                     <span class="absolute peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-gray-500 peer-placeholder-shown:text-base peer-focus:text-xs peer-focus:top-1.5 peer-focus:text-gray-500 text-gray-500 text-xs left-4 top-1.5 transition-all">Email</span>
                 </label>
                 <button class="ml-auto text-black group/button px-4 py-3 bg-white hover:bg-red-300 rounded-lg group-await:bg-red-300 font-semibold *:overflow-hidden flex items-center justify-center" type="submit" aria-label="Enviar formulario">
@@ -114,3 +120,4 @@
         </form>
     </div>
 </footer>
+{/if}

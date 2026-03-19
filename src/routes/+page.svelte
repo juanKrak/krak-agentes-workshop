@@ -4,7 +4,7 @@
   // =========================
   // CONFIG
   // =========================
-  const YOUTUBE_ID = 'GD6frexLvxs';
+  const API_VIDEOS_URL = 'https://d1-template.rapid-band-96d6.workers.dev/api/videos';
   const VIDEO_TITLE = 'Masterclass de Krak Real Estate con Marcelo Napolitano';
 
   // Webhooks (separados para evitar duplicados)
@@ -22,6 +22,7 @@
   // =========================
   const LS_KEY = 'krak_masterclass_video_access_v1';
 
+  let YOUTUBE_ID = '';
   let showGate = false;
   let gateEmail = '';
   let gateError = '';
@@ -29,9 +30,79 @@
   let videoLoaded = false; // performance: iframe solo al click
 
   const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
-  const poster = `https://i.ytimg.com/vi/${YOUTUBE_ID}/hqdefault.jpg`;
 
-  onMount(() => {
+  $: poster = YOUTUBE_ID ? `https://i.ytimg.com/vi/${YOUTUBE_ID}/hqdefault.jpg` : '';
+
+  function extractYouTubeId(url) {
+    if (!url) return null;
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/,
+      /youtube\.com\/embed\/([^?&\s]+)/,
+      /youtube\.com\/v\/([^?&\s]+)/
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) return match[1];
+    }
+    return null;
+  }
+
+  async function loadActiveVideo() {
+    try {
+      const res = await fetch(API_VIDEOS_URL);
+      if (!res.ok) {
+        console.error('Error fetching videos:', res.status);
+        YOUTUBE_ID = 'GD6frexLvxs'; // fallback
+        return;
+      }
+
+      const videos = await res.json();
+      if (!Array.isArray(videos) || videos.length === 0) {
+        YOUTUBE_ID = 'GD6frexLvxs'; // fallback
+        return;
+      }
+
+      const now = new Date();
+
+      // Filtrar videos activos (active = 1)
+      const activeVideos = videos.filter(v => v.active === 1);
+
+      // Buscar video vigente (no expirado)
+      const validVideo = activeVideos.find(v => {
+        if (!v.expiration_at) return false;
+        const expirationDate = new Date(v.expiration_at);
+        return expirationDate > now;
+      });
+
+      // Si hay video vigente, usarlo
+      if (validVideo) {
+        YOUTUBE_ID = extractYouTubeId(validVideo.link) || 'GD6frexLvxs';
+        return;
+      }
+
+      // Si no hay video vigente, buscar el que expiró más recientemente
+      const expiredVideos = activeVideos
+        .filter(v => v.expiration_at)
+        .map(v => ({
+          ...v,
+          expirationDate: new Date(v.expiration_at)
+        }))
+        .sort((a, b) => b.expirationDate - a.expirationDate);
+
+      if (expiredVideos.length > 0) {
+        YOUTUBE_ID = extractYouTubeId(expiredVideos[0].link) || 'GD6frexLvxs';
+      } else {
+        YOUTUBE_ID = 'GD6frexLvxs'; // fallback final
+      }
+    } catch (error) {
+      console.error('Error loading video:', error);
+      YOUTUBE_ID = 'GD6frexLvxs'; // fallback
+    }
+  }
+
+  onMount(async () => {
+    await loadActiveVideo();
+
     const cached = localStorage.getItem(LS_KEY);
     if (cached && isValidEmail(cached)) {
       videoUnlocked = true;
@@ -209,18 +280,26 @@
     if (!isValidEmail(a_email)) return alert('Ingresá un email válido.');
     if (!a_cv) return alert('Adjuntá tu CV (PDF/DOC/DOCX).');
 
+    const formData = {
+      source: 'agentes.krak.com.ar',
+      funnel: 'post_agent_form',
+      nombre: a_nombre.trim(),
+      apellido: a_apellido.trim(),
+      celular: a_celular.trim(),
+      email: a_email.trim(),
+      createdAt: new Date().toISOString()
+    };
+
     const fd = new FormData();
-    fd.append('source', 'agentes.krak.com.ar');
-    fd.append('funnel', 'post_video_form');
-    fd.append('nombre', a_nombre.trim());
-    fd.append('apellido', a_apellido.trim());
-    fd.append('celular', a_celular.trim());
-    fd.append('email', a_email.trim());
-    fd.append('createdAt', new Date().toISOString());
-    fd.append('cv', a_cv);
+    fd.append('data', JSON.stringify(formData));
+    fd.append('file', a_cv);
 
     try {
-      const res = await fetch(WEBHOOK_AGENT_URL, { method: 'POST', body: fd });
+      const res = await fetch('https://d1-template.rapid-band-96d6.workers.dev/api/formularios', {
+        method: 'POST',
+        body: fd
+      });
+
       if (res.ok) {
         alert('¡Gracias! Recibimos tu info 🙌');
         a_nombre = '';
