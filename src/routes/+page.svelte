@@ -1,5 +1,9 @@
 <script>
   import { onMount } from 'svelte';
+  import Swiper from 'swiper';
+  import 'swiper/css';
+  import 'swiper/css/navigation';
+  import 'swiper/css/pagination';
 
   // =========================
   // CONFIG
@@ -22,15 +26,18 @@
   // =========================
   const LS_KEY = 'krak_masterclass_video_access_v1';
 
-  let YOUTUBE_ID = '';
+  let videos = []; // todos los videos activos
+  let currentVideoIndex = 0;
   let showGate = false;
   let gateEmail = '';
   let gateError = '';
-  let videoUnlocked = false; // habilita reproducción (email OK)
-  let videoLoaded = false; // performance: iframe solo al click
+  let videoUnlocked = false; // habilita reproducción de TODOS los videos (email OK)
+  let loadedVideos = {}; // track de qué videos tienen iframe cargado {index: true}
 
   const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
 
+  $: currentVideo = videos[currentVideoIndex];
+  $: YOUTUBE_ID = currentVideo ? extractYouTubeId(currentVideo.link) : '';
   $: poster = YOUTUBE_ID ? `https://i.ytimg.com/vi/${YOUTUBE_ID}/hqdefault.jpg` : '';
 
   function extractYouTubeId(url) {
@@ -52,53 +59,37 @@
       const res = await fetch(API_VIDEOS_URL);
       if (!res.ok) {
         console.error('Error fetching videos:', res.status);
-        YOUTUBE_ID = 'GD6frexLvxs'; // fallback
+        videos = [{ link: 'https://www.youtube.com/watch?v=GD6frexLvxs', id: 'fallback' }];
         return;
       }
 
-      const videos = await res.json();
-      if (!Array.isArray(videos) || videos.length === 0) {
-        YOUTUBE_ID = 'GD6frexLvxs'; // fallback
+      const allVideos = await res.json();
+      if (!Array.isArray(allVideos) || allVideos.length === 0) {
+        videos = [{ link: 'https://www.youtube.com/watch?v=GD6frexLvxs', id: 'fallback' }];
         return;
       }
 
-      const now = new Date();
+      // Filtrar videos activos (active = 1) y ordenar por created_at (más antiguo primero)
+      const activeVideos = allVideos
+        .filter(v => v.active === 1)
+        .sort((a, b) => {
+          const dateA = a.created_at ? new Date(a.created_at) : new Date(0);
+          const dateB = b.created_at ? new Date(b.created_at) : new Date(0);
+          return dateA - dateB;
+        });
 
-      // Filtrar videos activos (active = 1)
-      const activeVideos = videos.filter(v => v.active === 1);
-
-      // Buscar video vigente (no expirado)
-      const validVideo = activeVideos.find(v => {
-        if (!v.expiration_at) return false;
-        const expirationDate = new Date(v.expiration_at);
-        return expirationDate > now;
-      });
-
-      // Si hay video vigente, usarlo
-      if (validVideo) {
-        YOUTUBE_ID = extractYouTubeId(validVideo.link) || 'GD6frexLvxs';
-        return;
-      }
-
-      // Si no hay video vigente, buscar el que expiró más recientemente
-      const expiredVideos = activeVideos
-        .filter(v => v.expiration_at)
-        .map(v => ({
-          ...v,
-          expirationDate: new Date(v.expiration_at)
-        }))
-        .sort((a, b) => b.expirationDate - a.expirationDate);
-
-      if (expiredVideos.length > 0) {
-        YOUTUBE_ID = extractYouTubeId(expiredVideos[0].link) || 'GD6frexLvxs';
+      if (activeVideos.length > 0) {
+        videos = activeVideos;
       } else {
-        YOUTUBE_ID = 'GD6frexLvxs'; // fallback final
+        videos = [{ link: 'https://www.youtube.com/watch?v=GD6frexLvxs', id: 'fallback' }];
       }
     } catch (error) {
       console.error('Error loading video:', error);
-      YOUTUBE_ID = 'GD6frexLvxs'; // fallback
+      videos = [{ link: 'https://www.youtube.com/watch?v=GD6frexLvxs', id: 'fallback' }];
     }
   }
+
+  let swiperInstance = null;
 
   onMount(async () => {
     await loadActiveVideo();
@@ -107,11 +98,33 @@
     if (cached && isValidEmail(cached)) {
       videoUnlocked = true;
     }
+
+    // Inicializar Swiper
+    if (videos.length > 1) {
+      swiperInstance = new Swiper('.video-swiper', {
+        slidesPerView: 1,
+        spaceBetween: 20,
+        navigation: {
+          nextEl: '.swiper-button-next',
+          prevEl: '.swiper-button-prev',
+        },
+        pagination: {
+          el: '.swiper-pagination',
+          clickable: true,
+        },
+        on: {
+          slideChange: (swiper) => {
+            currentVideoIndex = swiper.activeIndex;
+          }
+        }
+      });
+    }
   });
 
-  function openVideo() {
+  function openVideo(index) {
     if (videoUnlocked) {
-      videoLoaded = true;
+      loadedVideos[index] = true;
+      loadedVideos = {...loadedVideos}; // trigger reactivity
       return;
     }
     showGate = true;
@@ -143,18 +156,22 @@
         createdAt: new Date().toISOString(),
       });
 
-      // OK
+      // OK - Desbloquear TODOS los videos
       localStorage.setItem(LS_KEY, gateEmail.trim());
       videoUnlocked = true;
       showGate = false;
-      videoLoaded = true;
+      // Cargar el video actual
+      loadedVideos[currentVideoIndex] = true;
+      loadedVideos = {...loadedVideos};
     } catch (e) {
       // 🔥 Modo "video always works" para hoy:
       // si el webhook falla, igual no bloqueamos el contenido.
       localStorage.setItem(LS_KEY, gateEmail.trim());
       videoUnlocked = true;
       showGate = false;
-      videoLoaded = true;
+      // Cargar el video actual
+      loadedVideos[currentVideoIndex] = true;
+      loadedVideos = {...loadedVideos};
     }
   }
 
@@ -413,37 +430,98 @@
 
 <!-- VIDEO (gateado por email) -->
 <section id="video" class="py-14 sm:py-16 px-4 sm:px-6 lg:px-8 bg-[#070F1F]">
-  <div class="max-w-4xl mx-auto">
-    <div class="relative rounded-2xl overflow-hidden border border-white/10 bg-black">
-      <div class="pointer-events-none absolute -inset-8 bg-[#08407C]/15 blur-2xl"></div>
+  <div class="max-w-6xl mx-auto">
+    <h2 class="text-3xl md:text-4xl font-bold text-white text-center font-inter mb-8">Masterclasses disponibles</h2>
 
-      <div class="relative aspect-video">
-        {#if videoLoaded}
-          <iframe
-            class="absolute inset-0 w-full h-full"
-            src={"https://www.youtube-nocookie.com/embed/" + YOUTUBE_ID + "?autoplay=1&rel=0&modestbranding=1&playsinline=1"}
-            title={VIDEO_TITLE}
-            frameborder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowfullscreen
-          />
-        {:else}
-          <button
-            type="button"
-            class="absolute inset-0 w-full h-full grid place-items-center bg-black"
-            on:click={openVideo}
-            aria-label="Reproducir masterclass (requiere email)"
-          >
-            <img src={poster} alt="" class="absolute inset-0 w-full h-full object-cover opacity-80" loading="lazy" />
-            <span class="relative z-10 flex items-center gap-3 rounded-full bg-black/60 px-6 py-3 border border-white/15">
-              <span class="text-2xl">▶</span>
-              <span class="text-white font-semibold">
-                {videoUnlocked ? 'Reproducir masterclass' : 'Ver el video (dejanos tu email)'}
-              </span>
-            </span>
-          </button>
+    <div class="relative">
+      <div class="video-swiper swiper">
+        <div class="swiper-wrapper">
+          {#each videos as video, index}
+            <div class="swiper-slide">
+              <div class="relative rounded-2xl overflow-hidden border border-white/10 bg-black">
+                <div class="pointer-events-none absolute -inset-8 bg-[#08407C]/15 blur-2xl"></div>
+
+                <!-- Indicador de Clase -->
+                <div class="absolute top-4 left-4 z-20 bg-[#08407C] text-white px-4 py-2 rounded-lg font-bold text-sm border border-white/20">
+                  Clase {index + 1}
+                </div>
+
+                <div class="relative aspect-video">
+                  {#if loadedVideos[index]}
+                    <iframe
+                      class="absolute inset-0 w-full h-full"
+                      src={"https://www.youtube-nocookie.com/embed/" + extractYouTubeId(video.link) + "?autoplay=1&rel=0&modestbranding=1&playsinline=1"}
+                      title={VIDEO_TITLE + ' - Clase ' + (index + 1)}
+                      frameborder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowfullscreen
+                    />
+                  {:else}
+                    <button
+                      type="button"
+                      class="absolute inset-0 w-full h-full grid place-items-center bg-black"
+                      on:click={() => openVideo(index)}
+                      aria-label="Reproducir masterclass (requiere email)"
+                    >
+                      <img
+                        src={extractYouTubeId(video.link) ? `https://i.ytimg.com/vi/${extractYouTubeId(video.link)}/hqdefault.jpg` : ''}
+                        alt=""
+                        class="absolute inset-0 w-full h-full object-cover opacity-80"
+                        loading="lazy"
+                      />
+                      <span class="relative z-10 flex items-center gap-3 rounded-full bg-black/60 px-6 py-3 border border-white/15">
+                        <span class="text-2xl">▶</span>
+                        <span class="text-white font-semibold">
+                          {videoUnlocked ? 'Reproducir Clase ' + (index + 1) : 'Ver el video (dejanos tu email)'}
+                        </span>
+                      </span>
+                    </button>
+                  {/if}
+                </div>
+              </div>
+            </div>
+          {/each}
+        </div>
+
+        <!-- Navegación -->
+        {#if videos.length > 1}
+          <div class="swiper-button-prev"></div>
+          <div class="swiper-button-next"></div>
         {/if}
       </div>
+
+      <!-- Custom dots con indicadores de clase -->
+      {#if videos.length > 1}
+        <div class="flex justify-center gap-3 mt-8 flex-wrap">
+          {#each videos as video, index}
+            <button
+              type="button"
+              class="flex flex-col items-center gap-2 transition-all duration-300"
+              on:click={() => {
+                if (swiperInstance) {
+                  swiperInstance.slideTo(index);
+                }
+              }}
+            >
+              <!-- Dot -->
+              <div
+                class="w-3 h-3 rounded-full transition-all duration-300 {currentVideoIndex === index
+                  ? 'bg-[#08407C] ring-4 ring-[#08407C]/30 scale-125'
+                  : 'bg-white/30 hover:bg-white/50'}"
+              ></div>
+
+              <!-- Label de clase -->
+              <span
+                class="text-xs font-semibold transition-all duration-300 {currentVideoIndex === index
+                  ? 'text-white'
+                  : 'text-white/50'}"
+              >
+                Clase {index + 1}
+              </span>
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
   </div>
 
