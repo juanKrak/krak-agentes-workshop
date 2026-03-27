@@ -4,7 +4,7 @@
   // =========================
   // CONFIG
   // =========================
-  const API_VIDEOS_URL = 'https://d1-template.rapid-band-96d6.workers.dev/api/videos';
+  const API_VIDEOS_URL = 'https://d1-api-krak-agentes.rapid-band-96d6.workers.dev/api/videos';
   const VIDEO_TITLE = 'Masterclass de Krak Real Estate con Marcelo Napolitano';
 
   // Webhooks (separados para evitar duplicados)
@@ -295,7 +295,7 @@
     fd.append('file', a_cv);
 
     try {
-      const res = await fetch('https://d1-template.rapid-band-96d6.workers.dev/api/formularios', {
+      const res = await fetch('https://d1-api-krak-agentes.rapid-band-96d6.workers.dev/api/formularios', {
         method: 'POST',
         body: fd
       });
