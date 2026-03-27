@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
 
-  const API_BASE = 'https://d1-template.rapid-band-96d6.workers.dev/api';
+  const API_BASE = 'https://d1-api-krak-agentes.rapid-band-96d6.workers.dev/api';
   const TOKEN_KEY = 'krak_admin_token';
 
   // AUTH
